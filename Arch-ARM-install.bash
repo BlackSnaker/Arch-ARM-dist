@@ -3,67 +3,118 @@
 # Функция для вывода сообщений
 print_message() {
     local GREEN='\033[0;32m'
+    local RED='\033[0;31m'
     local NC='\033[0m' # No Color
-    echo -e "${GREEN}>> $1${NC}"
+    if [ "$1" == "error" ]; then
+        echo -e "${RED}Ошибка: $2${NC}"
+    else
+        echo -e "${GREEN}>> $1${NC}"
+    fi
 }
 
 # Функция для проверки успешности выполнения команды
 check_command_success() {
     if [ $? -ne 0 ]; then
-        print_message "Ошибка: $1"
+        print_message "error" "$1"
         exit 1
     fi
 }
 
 # Функция для запроса у пользователя имени устройства
 prompt_for_device() {
-    read -p "Введите имя вашего устройства SD-карты (например, sdX): " device_name
+    local device_name=""
+    while [ -z "$device_name" ]; do
+        read -p "Введите имя вашего устройства SD-карты (например, sdX): " device_name
+    done
     DEVICE="/dev/$device_name"
     echo $DEVICE
 }
 
+# Функция для запроса имени пользователя и пароля
+prompt_for_user() {
+    local username=""
+    local password=""
+    while [ -z "$username" ]; do
+        read -p "Введите имя нового пользователя: " username
+    done
+    while [ -z "$password" ]; do
+        read -sp "Введите пароль для пользователя $username: " password
+        echo ""
+        read -sp "Повторите пароль: " password2
+        echo ""
+        if [ "$password" != "$password2" ]; then
+            print_message "error" "Пароли не совпадают. Попробуйте снова."
+            password=""
+        fi
+    done
+    echo "$username:$password"
+}
+
 # Проверка, выполняется ли скрипт от имени root
 if [ "$EUID" -ne 0 ]; then
-    print_message "Пожалуйста, запустите этот скрипт от имени root или с помощью sudo."
-    exit 1
-fi
-
-# Вывод стартового сообщения
-print_message "Начало автоматической установки..."
-
-# Запрос у пользователя имени устройства
-print_message "Убедитесь, что заменили /dev/sdX на соответствующее имя устройства."
-device=$(prompt_for_device)
-
-# Проверка существования устройства
-while [ ! -e "$device" ]; do
-    print_message "Устройство $device не найдено. Пожалуйста, введите допустимое имя устройства."
-    device=$(prompt_for_device)
-done
-
-# Проверка существующих монтирований
-if [ -d "/mnt/boot" ] || [ -d "/mnt/root" ]; then
-    print_message "Каталоги монтирования (/mnt/boot или /mnt/root) уже существуют. Пожалуйста, удалите их перед выполнением скрипта."
+    print_message "error" "Пожалуйста, запустите этот скрипт от имени root или с помощью sudo."
     exit 1
 fi
 
 # Проверка доступности утилит
 print_message "Проверка доступности утилит..."
 missing_utilities=()
-for util in fdisk mkfs.fat mkfs.ext4 curl md5sum bsdtar; do
+for util in fdisk mkfs.fat mkfs.ext4 curl md5sum bsdtar useradd chpasswd; do
     if ! command -v "$util" >/dev/null 2>&1; then
         missing_utilities+=("$util")
     fi
 done
 
 if [ ${#missing_utilities[@]} -gt 0 ]; then
-    print_message "Отсутствуют следующие утилиты, необходимые для выполнения скрипта: ${missing_utilities[*]}"
+    print_message "error" "Отсутствуют следующие утилиты, необходимые для выполнения скрипта: ${missing_utilities[*]}"
     exit 1
 fi
 
-# Проверка предварительных условий
-print_message "Проверка предварительных условий..."
-# Добавьте сюда любые проверки предварительных условий, если необходимо
+# Отображение окна приветствия
+show_welcome_dialog() {
+    zenity --info --title="Установка Arch ARM" --text="Добро пожаловать в установку Arch Linux ARM.\n\nНажмите 'Установить', чтобы начать процесс установки."
+}
+
+# Создание нового пользователя
+create_user() {
+    local user_info=$1
+    IFS=':' read -r username password <<< "$user_info"
+    useradd -m -G wheel "$username"
+    if [ $? -ne 0 ]; then
+        print_message "error" "Ошибка при создании пользователя."
+        exit 1
+    fi
+    echo "$username:$password" | chpasswd
+    check_command_success "Ошибка при создании пользователя."
+    print_message "Пользователь $username успешно создан."
+}
+
+# Вывод стартового сообщения
+print_message "Начало автоматической установки..."
+
+# Отображение окна приветствия
+show_welcome_dialog
+
+# Запрос у пользователя имени устройства
+print_message "Убедитесь, что заменили /dev/sdX на соответствующее имя устройства."
+device=$(prompt_for_device)
+
+# Проверка существования устройства
+if [ ! -e "$device" ]; then
+    print_message "error" "Устройство $device не найдено. Пожалуйста, введите допустимое имя устройства."
+    exit 1
+fi
+
+# Проверка существующих монтирований
+if [ -d "/mnt/boot" ] || [ -d "/mnt/root" ]; then
+    print_message "error" "Каталоги монтирования (/mnt/boot или /mnt/root) уже существуют. Пожалуйста, удалите их перед выполнением скрипта."
+    exit 1
+fi
+
+# Создание нового пользователя
+print_message "Создание нового пользователя..."
+user_info=$(prompt_for_user)
+create_user "$user_info"
 
 # Разбиение SD-карты на разделы
 print_message "Разбиение SD-карты на разделы..."
@@ -102,18 +153,18 @@ check_command_success "Ошибка при монтировании корнев
 
 # Загрузка Arch Linux ARM
 print_message "Загрузка Arch Linux ARM..."
-curl -JLO http://os.archlinuxarm.org/os/ArchLinuxARM-rpi-armv7-latest.tar.gz
-curl -JLO http://os.archlinuxarm.org/os/ArchLinuxARM-rpi-armv7-latest.tar.gz.md5
+curl -JLO http://os.archlinuxarm.org/os/ArchLinuxARM-rpi-aarch64-latest.tar.gz
+curl -JLO http://os.archlinuxarm.org/os/ArchLinuxARM-rpi-aarch64-latest.tar.gz.md5
 check_command_success "Ошибка при загрузке Arch Linux ARM."
 
 # Проверка загрузки
 print_message "Проверка загрузки..."
-md5sum -c ArchLinuxARM-rpi-armv7-latest.tar.gz.md5
+md5sum -c ArchLinuxARM-rpi-aarch64-latest.tar.gz.md5
 check_command_success "Ошибка при проверке загрузки."
 
 # Извлечение загруженного архива
 print_message "Извлечение загруженного архива..."
-bsdtar -xpf ArchLinuxARM-rpi-armv7-latest.tar.gz -C /mnt/root
+bsdtar -xpf ArchLinuxARM-rpi-aarch64-latest.tar.gz -C /mnt/root
 check_command_success "Ошибка при извлечении архива."
 
 # Перемещение файлов загрузки
@@ -128,7 +179,7 @@ check_command_success "Ошибка при размонтировании раз
 
 # Очистка
 print_message "Очистка..."
-rm -rf /mnt/boot /mnt/root ArchLinuxARM-rpi-armv7-latest.tar.gz ArchLinuxARM-rpi-armv7-latest.tar.gz.md5
+rm -rf /mnt/boot /mnt/root ArchLinuxARM-rpi-aarch64-latest.tar.gz ArchLinuxARM-rpi-aarch64-latest.tar.gz.md5
 check_command_success "Ошибка при очистке."
 
 print_message "Установка завершена успешно!"
