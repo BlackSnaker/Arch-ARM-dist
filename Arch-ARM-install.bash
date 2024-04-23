@@ -41,6 +41,26 @@ while [ ! -e "$device" ]; do
     device=$(prompt_for_device)
 done
 
+# Проверка существующих монтирований
+if [ -d "/mnt/boot" ] || [ -d "/mnt/root" ]; then
+    print_message "Каталоги монтирования (/mnt/boot или /mnt/root) уже существуют. Пожалуйста, удалите их перед выполнением скрипта."
+    exit 1
+fi
+
+# Проверка доступности утилит
+print_message "Проверка доступности утилит..."
+missing_utilities=()
+for util in fdisk mkfs.fat mkfs.ext4 curl md5sum bsdtar; do
+    if ! command -v "$util" >/dev/null 2>&1; then
+        missing_utilities+=("$util")
+    fi
+done
+
+if [ ${#missing_utilities[@]} -gt 0 ]; then
+    print_message "Отсутствуют следующие утилиты, необходимые для выполнения скрипта: ${missing_utilities[*]}"
+    exit 1
+fi
+
 # Проверка предварительных условий
 print_message "Проверка предварительных условий..."
 # Добавьте сюда любые проверки предварительных условий, если необходимо
