@@ -50,6 +50,24 @@ prompt_for_user() {
     echo "$username:$password"
 }
 
+# Функция для установки утилиты, если она отсутствует
+install_utility() {
+    local utility=$1
+    if ! command -v "$utility" >/dev/null 2>&1; then
+        print_message "Установка утилиты $utility..."
+        if [ -x "$(command -v apt-get)" ]; then
+            apt-get install -y "$utility"
+        elif [ -x "$(command -v yum)" ]; then
+            yum install -y "$utility"
+        elif [ -x "$(command -v pacman)" ]; then
+            pacman -S --noconfirm "$utility"
+        else
+            print_message "error" "Не удалось установить утилиту $utility."
+            exit 1
+        fi
+    fi
+}
+
 # Проверка, выполняется ли скрипт от имени root
 if [ "$EUID" -ne 0 ]; then
     print_message "error" "Пожалуйста, запустите этот скрипт от имени root или с помощью sudo."
@@ -58,17 +76,9 @@ fi
 
 # Проверка доступности утилит
 print_message "Проверка доступности утилит..."
-missing_utilities=()
 for util in fdisk mkfs.fat mkfs.ext4 curl md5sum bsdtar useradd chpasswd; do
-    if ! command -v "$util" >/dev/null 2>&1; then
-        missing_utilities+=("$util")
-    fi
+    install_utility "$util"
 done
-
-if [ ${#missing_utilities[@]} -gt 0 ]; then
-    print_message "error" "Отсутствуют следующие утилиты, необходимые для выполнения скрипта: ${missing_utilities[*]}"
-    exit 1
-fi
 
 # Отображение окна приветствия
 show_welcome_dialog() {
