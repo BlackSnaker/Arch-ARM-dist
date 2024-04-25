@@ -55,12 +55,18 @@ install_utility() {
     local utility=$1
     if ! command -v "$utility" >/dev/null 2>&1; then
         print_message "Установка утилиты $utility..."
-        if [ -x "$(command -v apt-get)" ]; then
+        if [ -n "$TERMUX_VERSION" ]; then
+            pkg install -y "$utility"
+            check_command_success "Ошибка при установке утилиты $utility."
+        elif [ -x "$(command -v apt-get)" ]; then
             apt-get install -y "$utility"
+            check_command_success "Ошибка при установке утилиты $utility."
         elif [ -x "$(command -v yum)" ]; then
             yum install -y "$utility"
+            check_command_success "Ошибка при установке утилиты $utility."
         elif [ -x "$(command -v pacman)" ]; then
             pacman -S --noconfirm "$utility"
+            check_command_success "Ошибка при установке утилиты $utility."
         else
             print_message "error" "Не удалось установить утилиту $utility."
             exit 1
@@ -80,11 +86,6 @@ for util in fdisk mkfs.fat mkfs.ext4 curl md5sum bsdtar useradd chpasswd; do
     install_utility "$util"
 done
 
-# Отображение окна приветствия
-show_welcome_dialog() {
-    zenity --info --title="Установка Arch ARM" --text="Добро пожаловать в установку Arch Linux ARM.\n\nНажмите 'Установить', чтобы начать процесс установки."
-}
-
 # Создание нового пользователя
 create_user() {
     local user_info=$1
@@ -101,9 +102,6 @@ create_user() {
 
 # Вывод стартового сообщения
 print_message "Начало автоматической установки..."
-
-# Отображение окна приветствия
-show_welcome_dialog
 
 # Запрос у пользователя имени устройства
 print_message "Убедитесь, что заменили /dev/sdX на соответствующее имя устройства."
